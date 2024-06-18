@@ -1,6 +1,6 @@
 # Ftviz
-data/
-output/
+data/*
+output/*
 
 
 # Byte-compiled / optimized / DLL files

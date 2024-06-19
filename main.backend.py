@@ -6,7 +6,7 @@ def main():
     engine = setup_database("sqlite:///data/ftviz.db")
     ft = load_family_tree(engine)
 
-    ft.render()
+    ft.render(format="png")
 
 
 if __name__ == "__main__":

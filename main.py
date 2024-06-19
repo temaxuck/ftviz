@@ -1,9 +1,10 @@
 import os
 import pyray as rl
 
+from ctypes import POINTER, c_int
 from enum import Enum
 from dataclasses import dataclass
-from typing import Optional, Callable
+from typing import Optional, Callable, List
 
 from ftviz.db.utils import setup_database, load_family_tree
 from ftviz.models import Node, FamilyTree
@@ -15,16 +16,30 @@ BOLD_FONT_PATH = os.path.join("resources", "fonts", "Jura-Bold.ttf")
 STYLE_PATH = os.path.join("resources", "styles", "bluish", "style_bluish.txt.rgs")
 DATABASE_URI = "sqlite:///data/ftviz.db"
 
-font = None
-bold_font = None
-engine = None
-ft = None
-preview = None
+
+class AppState:
+    instance = None
+
+    def __new__(cls, *args, **kwargs):
+        if cls.instance is None:
+            cls.instance = super(AppState, cls).__new__(cls)
+
+        return cls.instance
+
+    def __getattr__(self, attr):
+        if str(attr) in self.__dict__:
+            return attr
+
+        return None
+
+
+g = AppState()
 
 # App configuration
 TITLE = "Family Tree"
 INITIAL_WIDTH = 800
 INITIAL_HEIGHT = 600
+
 
 BACKGROUND = rl.get_color(0xF0BE4BFF)
 FOREGROUND = rl.BLACK
@@ -45,13 +60,12 @@ class SCREEN(Enum):
     PREVIEW_SCREEN = 5
 
 
-current_screen = SCREEN.MAIN_MENU
-exit_requested = False
+g.current_screen = SCREEN.MAIN_MENU
+g.exit_requested = False
 
 
 def go_to_screen(next_screen: SCREEN):
-    global current_screen
-    current_screen = next_screen
+    g.current_screen = next_screen
 
 
 def do_nothing(*args, **kwargs): ...
@@ -138,8 +152,7 @@ class ExitButton(Button):
         self.text = text
 
     def on_press(self):
-        global exit_requested
-        exit_requested = True
+        g.exit_requested = True
 
 
 def get_screen_size():
@@ -158,21 +171,19 @@ def load_cyrillic_font(path: os.PathLike, font_size: int = 32) -> rl.Font:
 
 
 def load_fonts():
-    global font
-    global bold_font
-
-    font = load_cyrillic_font(FONT_PATH)
-    bold_font = load_cyrillic_font(BOLD_FONT_PATH, 60)
+    g.font = load_cyrillic_font(FONT_PATH)
+    g.bold_font = load_cyrillic_font(BOLD_FONT_PATH, 60)
+    rl.gui_set_font(g.font)
 
 
 def load_sprite(path: os.PathLike, fallback=True) -> rl.Texture:
     def _fallback():
         img = rl.gen_image_color(INITIAL_WIDTH, INITIAL_HEIGHT, rl.WHITE)
-        text_size = rl.measure_text_ex(bold_font, "Пусто", 32, 1)
+        text_size = rl.measure_text_ex(g.bold_font, "Пусто", 32, 1)
         img_pos = rl.Vector2(0, 0)
         img_size = rl.Vector2(INITIAL_WIDTH, INITIAL_HEIGHT)
         pos = center_pos(text_size, img_pos, img_size)
-        rl.image_draw_text_ex(img, bold_font, "Пусто", pos, 32, 1, rl.BLACK)
+        rl.image_draw_text_ex(img, g.bold_font, "Пусто", pos, 32, 1, rl.BLACK)
         texture = rl.load_texture_from_image(img)
         return texture
 
@@ -220,13 +231,12 @@ def draw_text(
     )
 
 
-def draw_title():
-    title_pos = rl.Vector2(PADDING, PADDING)
+def draw_title(title: str, pos: rl.Vector2 = rl.Vector2(PADDING, PADDING)):
     draw_text(
-        "Главное меню",
+        title,
         40,
-        title_pos,
-        text_font=bold_font,
+        pos,
+        text_font=g.bold_font,
     )
 
 
@@ -240,12 +250,11 @@ def draw_button(button: Button) -> bool:
 
 
 def draw_preview(bounds: rl.Rectangle, centered: bool = True):
-    global preview
     panel_header_height = 24
     panel_padding = 1
     scale = min(
-        (bounds.width - 2 * panel_padding) / preview.width,
-        (bounds.height - 2 * panel_padding - panel_header_height) / preview.height,
+        (bounds.width - 2 * panel_padding) / g.preview.width,
+        (bounds.height - 2 * panel_padding - panel_header_height) / g.preview.height,
     )
     pos = rl.Vector2(
         bounds.x + panel_padding,
@@ -253,7 +262,7 @@ def draw_preview(bounds: rl.Rectangle, centered: bool = True):
     )
 
     if centered:
-        actual_size = rl.Vector2(preview.width * scale, preview.height * scale)
+        actual_size = rl.Vector2(g.preview.width * scale, g.preview.height * scale)
         pos = center_pos(
             actual_size,
             rl.Vector2(
@@ -273,31 +282,31 @@ def draw_preview(bounds: rl.Rectangle, centered: bool = True):
         rl.WHITE,
     )
 
-    if preview:
-        rl.draw_texture_ex(preview, pos, 0, scale, rl.WHITE)
+    if g.preview:
+        rl.draw_texture_ex(g.preview, pos, 0, scale, rl.WHITE)
 
 
 def draw_screen(screen: SCREEN):
+    button_size = rl.Vector2(300, 50)
+    center = center_pos(button_size)
+    left_center = center
+    left_center.x = PADDING
     if screen == SCREEN.MAIN_MENU:
-        button_size = rl.Vector2(300, 50)
-        center = center_pos(button_size)
-        center.x = PADDING
-
         button_pos1 = rl.vector2_subtract(
-            center, rl.Vector2(0, button_size.y * 2 + PADDING)
+            left_center, rl.Vector2(0, button_size.y * 2 + PADDING)
         )
         button_pos2 = rl.vector2_subtract(
-            center, rl.Vector2(0, button_size.y / 2 + PADDING)
+            left_center, rl.Vector2(0, button_size.y / 2 + PADDING)
         )
         button_pos3 = rl.vector2_add(
-            center,
+            left_center,
             rl.Vector2(
                 0,
                 button_size.y / 2 + PADDING,
             ),
         )
         button_pos4 = rl.vector2_add(
-            center,
+            left_center,
             rl.Vector2(
                 0,
                 button_size.y * 2 + PADDING,
@@ -310,7 +319,7 @@ def draw_screen(screen: SCREEN):
         btn3 = Button(button_pos3, button_size, "Сгенерировать PDF")
         exit_btn = ExitButton(button_pos4, button_size, "Выйти")
 
-        draw_title()
+        draw_title("Главное меню")
         draw_button(btn1)
         draw_button(btn2)
         draw_button(btn3)
@@ -330,40 +339,35 @@ def draw_screen(screen: SCREEN):
                 preview_size.y,
             ),
         )
-    if screen == SCREEN.EDIT_MENU:
-        ...
 
 
 def main():
-    global engine
-    global ft
-    global preview
     rl.init_window(INITIAL_WIDTH, INITIAL_HEIGHT, TITLE)
     rl.set_target_fps(20)
 
     # Load assets
     load_fonts()
     rl.gui_load_style(STYLE_PATH)
-    rl.gui_set_font(font)
-    engine = setup_database(DATABASE_URI)
-    ft = load_family_tree(engine)
-    preview = load_sprite(os.path.join("output", "family-tree.gv.png"))
     # ----------------------------------------------------------------------------------
 
-    while not (rl.window_should_close() or exit_requested):
+    while not (rl.window_should_close() or g.exit_requested):
         rl.begin_drawing()
-        rl.clear_background(rl.WHITE)
-        rl.clear_background(rl.get_color(0xE8EEF1FF))
+        background_color = 2**32 + (
+            rl.gui_get_style(
+                rl.GuiControl.DEFAULT, rl.GuiDefaultProperty.BACKGROUND_COLOR
+            )
+        )
+        rl.clear_background(rl.get_color(background_color))
 
         # Update
-        draw_screen(current_screen)
+        draw_screen(g.current_screen)
         # ------------------------------------------------------------------------------
         rl.end_drawing()
 
     # Unload assets
-    rl.unload_font(font)
-    rl.unload_font(bold_font)
-    rl.unload_texture(preview)
+    rl.unload_font(g.font)
+    rl.unload_font(g.bold_font)
+    rl.unload_texture(g.preview)
     # ----------------------------------------------------------------------------------
 
     rl.close_window()

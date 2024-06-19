@@ -5,13 +5,21 @@ from enum import Enum
 from dataclasses import dataclass
 from typing import Optional, Callable
 
+from ftviz.db.utils import setup_database, load_family_tree
+from ftviz.models import Node, FamilyTree
+
+
 # Assets
 FONT_PATH = os.path.join("resources", "fonts", "Jura.ttf")
 BOLD_FONT_PATH = os.path.join("resources", "fonts", "Jura-Bold.ttf")
 STYLE_PATH = os.path.join("resources", "styles", "bluish", "style_bluish.txt.rgs")
+DATABASE_URI = "sqlite:///data/ftviz.db"
 
 font = None
 bold_font = None
+engine = None
+ft = None
+preview = None
 
 # App configuration
 TITLE = "Family Tree"
@@ -23,6 +31,10 @@ FOREGROUND = rl.BLACK
 BUTTON_BACKGROUND = rl.LIGHTGRAY
 BUTTON_DOWN_BACKGROUND = rl.GRAY
 PADDING = 10
+
+
+def log_err(msg: str):
+    raise Exception(msg)
 
 
 class SCREEN(Enum):
@@ -43,6 +55,23 @@ def go_to_screen(next_screen: SCREEN):
 
 
 def do_nothing(*args, **kwargs): ...
+
+
+def center_pos(
+    child_size: rl.Vector2 = None,
+    parent_pos: rl.Vector2 = None,
+    parent_size: rl.Vector2 = None,
+) -> rl.Vector2:
+    if child_size is None:
+        child_size = rl.Vector2(0, 0)
+    if parent_pos is None and parent_size is None:
+        parent_pos = rl.Vector2(0, 0)
+        parent_size = rl.Vector2(*get_screen_size())
+
+    x = (2 * parent_pos.x + parent_size.x - child_size.x) / 2
+    y = (2 * parent_pos.y + parent_size.y - child_size.y) / 2
+
+    return rl.Vector2(x, y)
 
 
 class Button:
@@ -136,21 +165,28 @@ def load_fonts():
     bold_font = load_cyrillic_font(BOLD_FONT_PATH, 60)
 
 
-def center_pos(
-    child_size: rl.Vector2 = None,
-    parent_pos: rl.Vector2 = None,
-    parent_size: rl.Vector2 = None,
-) -> rl.Vector2:
-    if child_size is None:
-        child_size = rl.Vector2(0, 0)
-    if parent_pos is None and parent_size is None:
-        parent_pos = rl.Vector2(0, 0)
-        parent_size = rl.Vector2(*get_screen_size())
+def load_sprite(path: os.PathLike, fallback=True) -> rl.Texture:
+    def _fallback():
+        img = rl.gen_image_color(INITIAL_WIDTH, INITIAL_HEIGHT, rl.WHITE)
+        text_size = rl.measure_text_ex(bold_font, "Пусто", 32, 1)
+        img_pos = rl.Vector2(0, 0)
+        img_size = rl.Vector2(INITIAL_WIDTH, INITIAL_HEIGHT)
+        pos = center_pos(text_size, img_pos, img_size)
+        rl.image_draw_text_ex(img, bold_font, "Пусто", pos, 32, 1, rl.BLACK)
+        texture = rl.load_texture_from_image(img)
+        return texture
 
-    x = (2 * parent_pos.x + parent_size.x - child_size.x) / 2
-    y = (2 * parent_pos.y + parent_size.y - child_size.y) / 2
+    if not os.path.exists(path):
+        if not fallback:
+            log_err(f"Couldn't load image: {path}")
+            return None
+        return _fallback()
 
-    return rl.Vector2(x, y)
+    img = rl.load_image(path)
+    texture = rl.load_texture_from_image(img)
+
+    rl.unload_image(img)
+    return texture
 
 
 def draw_text(
@@ -203,6 +239,44 @@ def draw_button(button: Button) -> bool:
         button.on_press()
 
 
+def draw_preview(bounds: rl.Rectangle, centered: bool = True):
+    global preview
+    panel_header_height = 24
+    panel_padding = 1
+    scale = min(
+        (bounds.width - 2 * panel_padding) / preview.width,
+        (bounds.height - 2 * panel_padding - panel_header_height) / preview.height,
+    )
+    pos = rl.Vector2(
+        bounds.x + panel_padding,
+        bounds.y + panel_header_height + panel_padding,
+    )
+
+    if centered:
+        actual_size = rl.Vector2(preview.width * scale, preview.height * scale)
+        pos = center_pos(
+            actual_size,
+            rl.Vector2(
+                bounds.x + panel_padding,
+                bounds.y + panel_padding + panel_header_height / 2,
+            ),
+            rl.Vector2(bounds.width, bounds.height),
+        )
+
+    # GIZMO
+    rl.gui_panel(bounds, "Preview")
+    rl.draw_rectangle(
+        int(bounds.x + panel_padding),
+        int(bounds.y + panel_padding + panel_header_height),
+        int(bounds.width - 2 * panel_padding),
+        int(bounds.height - 2 * panel_padding - panel_header_height),
+        rl.WHITE,
+    )
+
+    if preview:
+        rl.draw_texture_ex(preview, pos, 0, scale, rl.WHITE)
+
+
 def draw_screen(screen: SCREEN):
     if screen == SCREEN.MAIN_MENU:
         button_size = rl.Vector2(300, 50)
@@ -215,8 +289,20 @@ def draw_screen(screen: SCREEN):
         button_pos2 = rl.vector2_subtract(
             center, rl.Vector2(0, button_size.y / 2 + PADDING)
         )
-        button_pos3 = rl.vector2_add(center, rl.Vector2(0, button_size.y / 2 + PADDING))
-        button_pos4 = rl.vector2_add(center, rl.Vector2(0, button_size.y * 2 + PADDING))
+        button_pos3 = rl.vector2_add(
+            center,
+            rl.Vector2(
+                0,
+                button_size.y / 2 + PADDING,
+            ),
+        )
+        button_pos4 = rl.vector2_add(
+            center,
+            rl.Vector2(
+                0,
+                button_size.y * 2 + PADDING,
+            ),
+        )
         btn1 = GoButton(
             button_pos1, button_size, "Редактировать древо", SCREEN.EDIT_MENU
         )
@@ -229,9 +315,29 @@ def draw_screen(screen: SCREEN):
         draw_button(btn2)
         draw_button(btn3)
         draw_button(exit_btn)
+        preview_pos = rl.Vector2(
+            button_pos1.x + button_size.x + PADDING,
+            2 * PADDING,
+        )
+        preview_size = rl.vector2_subtract(
+            get_screen_size(), rl.vector2_add_value(preview_pos, PADDING)
+        )
+        draw_preview(
+            rl.Rectangle(
+                preview_pos.x,
+                preview_pos.y,
+                preview_size.x,
+                preview_size.y,
+            ),
+        )
+    if screen == SCREEN.EDIT_MENU:
+        ...
 
 
 def main():
+    global engine
+    global ft
+    global preview
     rl.init_window(INITIAL_WIDTH, INITIAL_HEIGHT, TITLE)
     rl.set_target_fps(20)
 
@@ -239,7 +345,10 @@ def main():
     load_fonts()
     rl.gui_load_style(STYLE_PATH)
     rl.gui_set_font(font)
-    # -----------------------------------------------------------------------------
+    engine = setup_database(DATABASE_URI)
+    ft = load_family_tree(engine)
+    preview = load_sprite(os.path.join("output", "family-tree.gv.png"))
+    # ----------------------------------------------------------------------------------
 
     while not (rl.window_should_close() or exit_requested):
         rl.begin_drawing()
@@ -248,12 +357,14 @@ def main():
 
         # Update
         draw_screen(current_screen)
-        # -------------------------------------------------------------------------
+        # ------------------------------------------------------------------------------
         rl.end_drawing()
 
     # Unload assets
     rl.unload_font(font)
-    # -----------------------------------------------------------------------------
+    rl.unload_font(bold_font)
+    rl.unload_texture(preview)
+    # ----------------------------------------------------------------------------------
 
     rl.close_window()
 

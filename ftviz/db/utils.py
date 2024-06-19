@@ -5,7 +5,7 @@ from sqlalchemy.orm import sessionmaker, selectinload
 from typing import List
 
 from ftviz.db.schema import metadata, person_table
-from ftviz.models import Node
+from ftviz.models import Node, FamilyTree
 
 SQLITE_URI = str
 
@@ -40,3 +40,15 @@ def get_all_nodes(engine: Engine) -> List[Node]:
         )
 
     return nodes
+
+
+def load_family_tree(engine: Engine) -> FamilyTree:
+    ft = FamilyTree()
+    nodes = get_all_nodes(engine)
+
+    for node in nodes:
+        ft.add_node(node)
+        for child in node.children:
+            ft.add_edge(node, child)
+
+    return ft

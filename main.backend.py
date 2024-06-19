@@ -1,16 +1,10 @@
-from ftviz.db.utils import setup_database, get_all_nodes
+from ftviz.db.utils import setup_database, load_family_tree
 from ftviz.models import Node, FamilyTree
 
 
 def main():
-    ft = FamilyTree()
     engine = setup_database("sqlite:///data/ftviz.db")
-    nodes = get_all_nodes(engine)
-
-    for node in nodes:
-        ft.add_node(node)
-        for child in node.children:
-            ft.add_edge(node, child)
+    ft = load_family_tree(engine)
 
     ft.render()
 

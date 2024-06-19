@@ -55,5 +55,5 @@ class FamilyTree:
     def add_edge(self, parent: Node, child: Node):
         self.root.edge(str(parent.id), str(child.id))
 
-    def render(self, path: os.PathLike = "output/family-tree.gv"):
-        self.root.render(path)
+    def render(self, path: os.PathLike = "output/family-tree.gv", format="pdf"):
+        self.root.render(path, format=format)

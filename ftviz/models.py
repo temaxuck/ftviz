@@ -8,17 +8,15 @@ from typing import Optional, List
 class Node:
     def __repr__(self):
         return (
-            f"<Node(id = {self.id},"
-            f" name = {self.name},"
-            f" img = {self.image_path},"
-            f" birth_date = {self.birth_date},"
-            f" death_date = {self.death_date})>"
+            f"{self.name} "
+            f"({self.birth_date.year} - {self.death_date.year if self.death_date else 'Present'})"
         )
 
 
 class FamilyTree:
     def __init__(self):
         self.root = graphviz.Digraph(engine="dot", comment="Family Tree")
+        self.nodes = []
 
     @classmethod
     def label_format(
@@ -43,6 +41,7 @@ class FamilyTree:
         self,
         node: Node,
     ):
+        self.nodes.append(node)
         label = self.label_format(
             node.name, node.image_path, node.birth_date, node.death_date
         )
